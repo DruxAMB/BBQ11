@@ -22,9 +22,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { parseUnits, isAddress, encodeFunctionData } from "viem";
+import { parseUnits, isAddress, encodeFunctionData, parseEther } from "viem";
 import { toast } from "sonner";
-import { USDC, erc20Abi } from "@/lib/usdc";
 import { useFaucet } from "@/hooks/useFaucet";
 import { useFaucetEligibility } from "@/hooks/useFaucetEligibility";
 
@@ -40,7 +39,6 @@ function App() {
   // Get universal account balance
   const { data: universalBalance } = useBalance({
     address: universalAccount,
-    token: USDC.address,
     query: {
       refetchInterval: 1000,
       enabled: !!universalAccount,
@@ -78,20 +76,14 @@ function App() {
     }
 
     try {
-      const data = encodeFunctionData({
-        abi: erc20Abi,
-        functionName: "transfer",
-        args: [toAddress as `0x${string}`, parseUnits(amount, USDC.decimals)],
-      });
-
+      // Send ETH directly
       sendTransaction({
-        to: USDC.address,
-        data,
-        value: 0n,
+        to: toAddress as `0x${string}`,
+        value: parseEther(amount),
       });
 
-      const toastId_ = toast("Sending USDC...", {
-        description: `Sending ${amount} USDC to ${toAddress}`,
+      const toastId_ = toast("Sending ETH...", {
+        description: `Sending ${amount} ETH to ${toAddress}`,
         duration: Infinity,
       });
 
@@ -109,7 +101,7 @@ function App() {
   useEffect(() => {
     if (isConfirmed && toastId !== null) {
       toast.success("Transaction successful!", {
-        description: `Sent ${amount} USDC to ${toAddress}`,
+        description: `Sent ${amount} ETH to ${toAddress}`,
         duration: 2000,
       });
 
@@ -137,7 +129,7 @@ function App() {
       return;
     }
 
-    const fundingToastId = toast.loading("Requesting USDC from faucet...", {
+    const fundingToastId = toast.loading("Requesting ETH from faucet...", {
       description: "This may take a few moments",
     });
 
@@ -149,7 +141,7 @@ function App() {
           toast.success("Account funded successfully!", {
             description: (
               <div className="flex flex-col gap-1">
-                <span>USDC has been sent to your wallet</span>
+                <span>ETH has been sent to your wallet</span>
                 <a
                   href={data.explorerUrl}
                   target="_blank"
@@ -177,18 +169,10 @@ function App() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-between px-4 pb-4 md:pb-8 md:px-8">
-      <div className="w-full max-w-6xl mx-auto">
+      <div className="w-full max-w-4xl mx-auto">
         <nav className="flex justify-between items-center sticky top-0 bg-background z-10 py-4">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">AI Image Generator</h1>
-            <a
-              href="https://github.com/stephancill/sub-accounts-fc-demo"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors underline"
-            >
-              Github
-            </a>
+            <h1 className="text-2xl font-bold">Reimager</h1>
           </div>
           {account.status === "connected" ? (
             <div className="flex items-center gap-2 text-muted-foreground">
@@ -219,7 +203,7 @@ function App() {
                   </DialogTrigger>
                   <DialogContent>
                     <DialogHeader>
-                      <DialogTitle>Send USDC</DialogTitle>
+                      <DialogTitle>Send ETH</DialogTitle>
                       <DialogDescription>
                         Enter the recipient address and amount to send
                       </DialogDescription>
@@ -238,27 +222,15 @@ function App() {
                           {universalAccount?.slice(0, 10)}...
                           {universalAccount?.slice(-8)}
                         </div>
-                        <Button
-                          variant="link"
-                          size="sm"
-                          onClick={handleFundAccount}
-                          disabled={
-                            faucetMutation.isPending ||
-                            !faucetEligibility.isEligible
-                          }
-                          className="h-auto p-0 text-xs mt-1"
-                          title={
-                            !faucetEligibility.isEligible
-                              ? faucetEligibility.reason
-                              : undefined
-                          }
-                        >
-                          {faucetMutation.isPending
-                            ? "Funding..."
-                            : faucetEligibility.isEligible
-                              ? "Get USDC on Base Sepolia"
-                              : "Sufficient Balance"}
-                        </Button>
+                                              </div>
+                      <div className="text-xl font-medium">
+                        {universalBalance
+                          ? `${universalBalance.formatted} ${universalBalance.symbol}`
+                          : "Loading..."}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-2">
+                        {universalAccount?.slice(0, 10)}...
+                        {universalAccount?.slice(-8)}
                       </div>
                       <Input
                         placeholder="Recipient Address (0x...)"
@@ -267,8 +239,8 @@ function App() {
                       />
                       <Input
                         type="number"
-                        placeholder="Amount in USDC"
-                        step="0.01"
+                        placeholder="Amount in ETH"
+                        step="0.00005"
                         min="0"
                         value={amount}
                         onChange={(e) => setAmount(e.target.value)}
@@ -284,28 +256,12 @@ function App() {
                           isTransactionPending
                         }
                       >
-                        Send USDC
+                        Send ETH
                       </Button>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
               </div>
-
-              <Button
-                variant="default"
-                onClick={handleFundAccount}
-                size="sm"
-                disabled={
-                  faucetMutation.isPending || !faucetEligibility.isEligible
-                }
-                title={
-                  !faucetEligibility.isEligible
-                    ? faucetEligibility.reason
-                    : undefined
-                }
-              >
-                {faucetMutation.isPending ? "Funding..." : "Fund Account"}
-              </Button>
 
               <Button variant="outline" onClick={() => disconnect()} size="sm">
                 Disconnect
@@ -327,6 +283,9 @@ function App() {
         </nav>
 
         <ImageGenerator />
+        <p className="text-xs text-muted-foreground text-center mt-2">
+                      powered by baseAccount and nano banna 🍌
+                    </p>
       </div>
     </main>
   );

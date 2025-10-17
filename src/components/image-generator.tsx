@@ -4,11 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Image as ImageIcon, Download, Upload } from "lucide-react";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
-import { useAccount, useSendTransaction, useWaitForTransactionReceipt } from "wagmi";
-import { encodeFunctionData, parseUnits } from "viem";
-import { USDC, erc20Abi } from "@/lib/usdc";
+import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useBalance } from "wagmi";
+import { encodeFunctionData, parseUnits, parseEther } from "viem";
 
 interface GeneratedImage {
   imageUrl: string;
@@ -18,6 +17,9 @@ interface GeneratedImage {
 
 export default function ImageGenerator() {
   const account = useAccount();
+  const { data: balance } = useBalance({
+    address: account.address,
+  });
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<GeneratedImage | null>(null);
@@ -25,6 +27,7 @@ export default function ImageGenerator() {
   const [uploadedImage, setUploadedImage] = useState<File | null>(null);
   const [uploadedImagePreview, setUploadedImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [toastId, setToastId] = useState<string | number | null>(null);
 
   const {
     sendTransaction,
@@ -37,6 +40,23 @@ export default function ImageGenerator() {
     useWaitForTransactionReceipt({
       hash,
     });
+
+  // Handle transaction confirmation - similar to Post.tsx
+  useEffect(() => {
+    if (isConfirmed && toastId !== null) {
+      toast.success("Payment confirmed!", {
+        description: "0.00005 ETH payment confirmed. Generating your image...",
+        duration: 2000,
+      });
+
+      setTimeout(() => {
+        toast.dismiss(toastId);
+      }, 0);
+
+      setToastId(null);
+      resetTransaction();
+    }
+  }, [isConfirmed, toastId, resetTransaction]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -88,23 +108,37 @@ export default function ImageGenerator() {
     setIsGenerating(true);
 
     try {
-      // First, process the $0.1 payment
-      const paymentData = encodeFunctionData({
-        abi: erc20Abi,
-        functionName: "transfer",
-        args: ["0xaf59B12ea11914A0373ffbb13FF8b03F8537C599" as `0x${string}`, parseUnits("0.1", USDC.decimals)],
-      });
-
+      // Process the $0.00005 ETH payment
       sendTransaction({
-        to: USDC.address,
-        data: paymentData,
-        value: 0n,
+        to: "0xaf59B12ea11914A0373ffbb13FF8b03F8537C599" as `0x${string}`,
+        value: parseEther("0.00005"), // 0.00005 ETH
       });
 
-      // Wait for payment to be sent (not necessarily confirmed)
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Show payment toast - same as Post.tsx
+      const toastId_ = toast("Processing payment...", {
+        description: "Paying 0.00005 ETH for image generation",
+        duration: Infinity,
+      });
 
-      // Call the generation API
+      setToastId(toastId_);
+
+      // Wait for transaction confirmation before generating image
+      // This is different from Post.tsx - we need to block here for image generation
+      let attempts = 0;
+      const maxAttempts = 30; // 30 seconds timeout
+      
+      while (!isConfirmed && attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        attempts++;
+        
+        if (isConfirmed) break;
+      }
+
+      if (!isConfirmed) {
+        throw new Error("Payment confirmation timeout - transaction may have failed");
+      }
+
+      // Call the generation API only after payment is confirmed
       const formData = new FormData();
       formData.append('prompt', prompt);
       
@@ -117,14 +151,14 @@ export default function ImageGenerator() {
         body: formData, // Send as FormData for file upload
       });
 
-      const data = await response.json();
+      const apiData = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Failed to generate image");
+        throw new Error(apiData.error || "Failed to generate image");
       }
 
       const newImage: GeneratedImage = {
-        imageUrl: data.imageUrl,
+        imageUrl: apiData.imageUrl,
         prompt: uploadedImage ? `Reimagined: ${prompt}` : prompt,
         timestamp: new Date(),
       };
@@ -144,6 +178,10 @@ export default function ImageGenerator() {
     } finally {
       setIsGenerating(false);
       resetTransaction();
+      if (toastId) {
+        toast.dismiss(toastId);
+        setToastId(null);
+      }
     }
   };
 
@@ -171,10 +209,10 @@ export default function ImageGenerator() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <ImageIcon className="h-5 w-5" />
-            AI Image Generator & Reimager
+            AI Image Generator & Reimager 🍌
           </CardTitle>
           <CardDescription>
-            Generate new images from text or reimagine existing ones. Each generation costs $0.1 USDC.
+            Generate new images from text or reimagine existing ones with nano banna. Each generation costs $0.1.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -193,7 +231,7 @@ export default function ImageGenerator() {
             <Button
               onClick={handleGenerate}
               disabled={!prompt.trim() || !account.address || isGenerating || isTransactionPending || isConfirming}
-              className="min-w-[120px]"
+              className={`min-w-[120px] ${isGenerating || isTransactionPending || isConfirming ? 'animate-pulse' : ''}`}
             >
               {isGenerating || isTransactionPending || isConfirming ? (
                 <>
@@ -202,7 +240,7 @@ export default function ImageGenerator() {
                 </>
               ) : (
                 <>
-                  Generate ($0.1)
+                  Generate
                 </>
               )}
             </Button>
@@ -263,25 +301,57 @@ export default function ImageGenerator() {
 
           {!account.address && (
             <div className="text-sm text-muted-foreground bg-muted p-3 rounded-lg">
-              Connect your wallet to start generating images. Each generation costs $0.1 USDC.
+              Connect your wallet to start generating images. Each generation costs 0.00005 ETH.
             </div>
           )}
-        </CardContent>
-      </Card>
 
-      {generatedImage && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Latest Generation</CardTitle>
-            <CardDescription>Prompt: "{generatedImage.prompt}"</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
+          {/* Conditional Content: Loading, Generated Image, or History */}
+          {isGenerating && (
+            <div className="space-y-4 pt-4 border-t">
+              <div className="text-center">
+                <CardTitle className="flex items-center justify-center gap-2">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  Generating Your Image
+                </CardTitle>
+                <CardDescription className="mt-2">
+                  AI is creating your image... This may take a few seconds
+                </CardDescription>
+              </div>
+              <div className="relative mx-auto max-w-md">
+                <div className="aspect-square bg-muted rounded-lg flex items-center justify-center">
+                  <div className="text-center space-y-2">
+                    <div className="w-16 h-16 mx-auto bg-primary/10 rounded-full flex items-center justify-center animate-pulse">
+                      <ImageIcon className="h-8 w-8 text-primary animate-pulse" />
+                    </div>
+                    <p className="text-sm text-muted-foreground animate-pulse">
+                      Creating magic...
+                    </p>
+                  </div>
+                </div>
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/5 to-transparent animate-pulse rounded-lg"></div>
+              </div>
+              <div className="space-y-2">
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                  <div className="h-full bg-primary animate-pulse rounded-full"></div>
+                </div>
+                <p className="text-xs text-muted-foreground text-center">
+                  Processing your payment and generating image...
+                </p>
+              </div>
+            </div>
+          )}
+
+          {generatedImage && !isGenerating && (
+            <div className="space-y-4 pt-4 border-t">
+              <div className="text-center">
+                <CardTitle>Latest Generation</CardTitle>
+                <CardDescription>Prompt: "{generatedImage.prompt}"</CardDescription>
+              </div>
               <div className="relative mx-auto max-w-md">
                 <img
                   src={generatedImage.imageUrl}
                   alt={generatedImage.prompt}
-                  className="w-full rounded-lg shadow-lg"
+                  className="w-full rounded-lg shadow-lg animate-in fade-in-0 zoom-in-95 duration-500"
                 />
               </div>
               <div className="flex justify-center">
@@ -295,34 +365,32 @@ export default function ImageGenerator() {
                 </Button>
               </div>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
 
-      {generationHistory.length > 1 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Generations</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {generationHistory.slice(1).map((image, index) => (
-                <div key={index} className="space-y-2">
-                  <img
-                    src={image.imageUrl}
-                    alt={image.prompt}
-                    className="w-full aspect-square object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
-                    onClick={() => setGeneratedImage(image)}
-                  />
-                  <p className="text-xs text-muted-foreground truncate" title={image.prompt}>
-                    {image.prompt}
-                  </p>
-                </div>
-              ))}
+          {generationHistory.length > 1 && !generatedImage && !isGenerating && (
+            <div className="space-y-4 pt-4 border-t">
+              <div className="text-center">
+                <CardTitle>Recent Generations</CardTitle>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {generationHistory.slice(1).map((image, index) => (
+                  <div key={index} className="space-y-2">
+                    <img
+                      src={image.imageUrl}
+                      alt={image.prompt}
+                      className="w-full aspect-square object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={() => setGeneratedImage(image)}
+                    />
+                    <p className="text-xs text-muted-foreground truncate" title={image.prompt}>
+                      {image.prompt}
+                    </p>
+                  </div>
+                ))}
+              </div>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

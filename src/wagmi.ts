@@ -1,10 +1,10 @@
 import { cookieStorage, createConfig, createStorage, http } from "wagmi";
-import { baseSepolia } from "wagmi/chains";
+import { base } from "wagmi/chains";
 import { baseAccount } from "wagmi/connectors";
 
 export function getConfig() {
   return createConfig({
-    chains: [baseSepolia],
+    chains: [base],
     connectors: [
       baseAccount({
         appName: "Sub Accounts Demo",
@@ -13,7 +13,7 @@ export function getConfig() {
           defaultAccount: "sub",
         },
         paymasterUrls: {
-          [baseSepolia.id]: process.env
+          [base.id]: process.env
             .NEXT_PUBLIC_PAYMASTER_SERVICE_URL as string,
         },
       }),
@@ -23,7 +23,7 @@ export function getConfig() {
     }),
     ssr: true,
     transports: {
-      [baseSepolia.id]: http(),
+      [base.id]: http(),
     },
   });
 }

@@ -22,7 +22,7 @@ export default function RootLayout(props: { children: ReactNode }) {
     headers().get("cookie")
   );
   return (
-    <html lang="en">
+    <html lang="en" className="dark">
       <body className={inter.className}>
         <Providers initialState={initialState}>{props.children}</Providers>
         <Toaster />
